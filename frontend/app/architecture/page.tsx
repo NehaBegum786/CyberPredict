@@ -1,0 +1,351 @@
+"use client";
+
+import { useState } from "react";
+import { Cpu, ChevronRight, X, ExternalLink } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/Card";
+import { DemoBadge } from "@/components/ui/Badge";
+import { cn } from "@/lib/utils";
+
+interface ArchNode {
+  id: string;
+  label: string;
+  sublabel: string;
+  color: { bg: string; border: string; text: string; dot: string };
+  status: "implemented" | "demo" | "planned";
+  description: string;
+  details: string[];
+  tech: string[];
+}
+
+const ARCH_NODES: ArchNode[] = [
+  {
+    id: "traffic",
+    label: "Network Traffic",
+    sublabel: "Raw flow ingestion",
+    color: { bg: "bg-slate-800/60",   border: "border-slate-700",   text: "text-slate-200", dot: "bg-slate-400"   },
+    status: "implemented",
+    description: "Raw network traffic data captured as flow records from network sensors, IDS probes, or uploaded datasets.",
+    details: [
+      "Accepts CSV (client-side) and PCAP (backend) formats",
+      "Supports common flow exporters: NetFlow, sFlow, IPFIX",
+      "Fields: src_ip, dst_ip, ports, protocol, packets, bytes, duration",
+      "Auto-detects column names with alias matching",
+    ],
+    tech: ["CSV/PCAP", "Papaparse", "Python pcapy"],
+  },
+  {
+    id: "preprocess",
+    label: "Traffic Preprocessing",
+    sublabel: "Cleaning & normalization",
+    color: { bg: "bg-blue-500/8",     border: "border-blue-500/20", text: "text-blue-300",   dot: "bg-blue-400"    },
+    status: "implemented",
+    description: "Raw flows are cleaned, normalized, and enriched with derived features before graph construction.",
+    details: [
+      "IP deduplication and host extraction",
+      "Temporal binning into configurable time windows",
+      "Feature normalization: z-score / min-max",
+      "Edge aggregation: packet rate, byte rate, connection frequency",
+      "Invalid/missing value handling",
+    ],
+    tech: ["pandas", "NumPy", "scikit-learn"],
+  },
+  {
+    id: "graph",
+    label: "Evolving Network Graph",
+    sublabel: "Dynamic host communication graph",
+    color: { bg: "bg-indigo-500/8",   border: "border-indigo-500/20", text: "text-indigo-300", dot: "bg-indigo-400" },
+    status: "implemented",
+    description: "Traffic flows are mapped to an evolving graph where hosts are nodes and communication events are edges. A sequence of graph snapshots G₁ → G₂ → … → Gₜ captures temporal evolution.",
+    details: [
+      "Nodes: unique hosts (IP addresses)",
+      "Edges: source → destination pairs per time window",
+      "Node features: in-degree, out-degree, risk score",
+      "Edge features: packet count, byte count, protocol, port, frequency",
+      "Graph stored as adjacency list + feature matrices",
+    ],
+    tech: ["NetworkX", "PyTorch Geometric", "React Flow"],
+  },
+  {
+    id: "gnn",
+    label: "Spatial GNN",
+    sublabel: "Graph neural network encoder",
+    color: { bg: "bg-purple-500/8",   border: "border-purple-500/20", text: "text-purple-300", dot: "bg-purple-400" },
+    status: "demo",
+    description: "A graph neural network encodes the topology of each graph snapshot into node and edge embeddings, capturing spatial communication patterns.",
+    details: [
+      "Candidate architectures: GCN, GraphSAGE, GAT",
+      "Message passing over 2–3 hops",
+      "Node embeddings: structural + behavioral features",
+      "Edge embeddings: communication strength + anomaly signal",
+      "Currently: MockPredictor returns illustrative embeddings",
+    ],
+    tech: ["PyTorch Geometric", "GCN", "GraphSAGE", "GAT"],
+  },
+  {
+    id: "temporal",
+    label: "Temporal Encoder",
+    sublabel: "Sequential pattern learning",
+    color: { bg: "bg-violet-500/8",   border: "border-violet-500/20", text: "text-violet-300", dot: "bg-violet-400" },
+    status: "demo",
+    description: "A temporal model processes the sequence of graph embeddings over time, learning how network behavior evolves — capturing the buildup toward attack behavior.",
+    details: [
+      "Inputs: sequence of GNN embeddings [h₁, h₂, …, hₜ]",
+      "Candidate architectures: GRU, Transformer, TGN",
+      "Captures behavioral drift over multiple windows",
+      "Enables look-ahead forecasting beyond current window",
+      "Currently: placeholder implementation in temporal_gnn.py",
+    ],
+    tech: ["PyTorch", "GRU", "Transformer", "TGN"],
+  },
+  {
+    id: "forecast",
+    label: "Multi-Horizon Forecasting",
+    sublabel: "Risk prediction H1, H2, H3",
+    color: { bg: "bg-amber-500/8",    border: "border-amber-500/20", text: "text-amber-300",   dot: "bg-amber-400"  },
+    status: "demo",
+    description: "The model predicts network attack risk for multiple future time horizons simultaneously, rather than only assessing current state.",
+    details: [
+      "Output: risk score for H1, H2, H3 future windows",
+      "Each horizon has an associated confidence bound",
+      "Risk levels: LOW / MEDIUM / HIGH / CRITICAL",
+      "Currently: mock scores generated by heuristic rules",
+      "Future: trained regression head on temporal embeddings",
+    ],
+    tech: ["Linear decoder", "Sigmoid output", "Confidence estimation"],
+  },
+  {
+    id: "pathforecast",
+    label: "Attack Path Forecast",
+    sublabel: "Lateral movement path prediction",
+    color: { bg: "bg-orange-500/8",   border: "border-orange-500/20", text: "text-orange-300", dot: "bg-orange-400" },
+    status: "demo",
+    description: "Predicts the most likely path an attacker would traverse through the network, identifying intermediate pivot hosts and the final target.",
+    details: [
+      "Graph-based path ranking using node importance scores",
+      "Path probability: product of per-hop confidence",
+      "Identifies entry node, pivot nodes, and target node",
+      "Future: graph attention + beam search over predicted embeddings",
+      "Currently: heuristic path selection from mock scores",
+    ],
+    tech: ["Graph attention", "Beam search", "Dijkstra variant"],
+  },
+  {
+    id: "explain",
+    label: "Explainability",
+    sublabel: "SHAP-style attribution",
+    color: { bg: "bg-rose-500/8",     border: "border-rose-500/20",  text: "text-rose-300",   dot: "bg-rose-400"   },
+    status: "demo",
+    description: "Every forecast is accompanied by an explanation identifying which nodes, edges, and behavioral features contributed most to the prediction.",
+    details: [
+      "Node importance: GNNExplainer / gradient attribution",
+      "Edge importance: attention weights from GAT layers",
+      "Feature importance: SHAP values over behavioral features",
+      "Directional indicators: feature increase / decrease",
+      "Currently: heuristic importance from MockPredictor",
+    ],
+    tech: ["GNNExplainer", "SHAP", "Captum", "Gradient attribution"],
+  },
+  {
+    id: "soc",
+    label: "SOC Dashboard",
+    sublabel: "Analyst interface",
+    color: { bg: "bg-green-500/8",    border: "border-green-500/20", text: "text-green-300",  dot: "bg-green-400"  },
+    status: "implemented",
+    description: "A security operations center dashboard presenting forecasts, alerts, network graphs, attack paths, and explanations in a unified analyst-facing interface.",
+    details: [
+      "Real-time risk metric cards",
+      "Multi-horizon forecast chart",
+      "Interactive network graph (React Flow)",
+      "Attack progression timeline (Observed/Inferred/Forecast)",
+      "Alert system with forecast-linked explanations",
+    ],
+    tech: ["Next.js", "React Flow", "Recharts", "Tailwind CSS"],
+  },
+];
+
+const STATUS_STYLES: Record<string, string> = {
+  implemented: "bg-green-500/10 border-green-500/20 text-green-400",
+  demo:        "bg-amber-500/10 border-amber-500/20 text-amber-400",
+  planned:     "bg-slate-800 border-slate-700 text-slate-500",
+};
+const STATUS_LABELS: Record<string, string> = {
+  implemented: "Implemented",
+  demo:        "Demo / Mock",
+  planned:     "Planned",
+};
+
+export default function ArchitecturePage() {
+  const [activeNode, setActiveNode] = useState<ArchNode | null>(null);
+
+  return (
+    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-xl font-bold text-white">System Architecture</h1>
+            <DemoBadge />
+          </div>
+          <p className="text-sm text-slate-400">
+            End-to-end pipeline: from raw traffic to SOC forecast. Click any block for details.
+          </p>
+        </div>
+        {/* Status legend */}
+        <div className="flex items-center gap-2 text-xs">
+          {Object.entries(STATUS_LABELS).map(([k, v]) => (
+            <span key={k} className={cn("px-2 py-1 rounded border font-semibold", STATUS_STYLES[k])}>
+              {v}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Pipeline diagram */}
+        <div className="lg:col-span-2">
+          <Card className="p-6">
+            <div className="flex flex-col items-center gap-0">
+              {ARCH_NODES.map((node, i) => (
+                <div key={node.id} className="flex flex-col items-center w-full max-w-sm">
+                  {/* Node block */}
+                  <button
+                    onClick={() => setActiveNode(activeNode?.id === node.id ? null : node)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left group",
+                      node.color.bg, node.color.border,
+                      activeNode?.id === node.id && "ring-2 ring-white/20 scale-[1.02]",
+                      "hover:brightness-110"
+                    )}
+                  >
+                    <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", node.color.dot)} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={cn("text-sm font-bold", node.color.text)}>{node.label}</p>
+                        <span className={cn(
+                          "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border",
+                          STATUS_STYLES[node.status]
+                        )}>
+                          {STATUS_LABELS[node.status]}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">{node.sublabel}</p>
+                    </div>
+                    <ChevronRight className={cn(
+                      "w-4 h-4 text-slate-600 shrink-0 transition-transform",
+                      activeNode?.id === node.id && "rotate-90"
+                    )} />
+                  </button>
+
+                  {/* Connector arrow */}
+                  {i < ARCH_NODES.length - 1 && (
+                    <div className="flex flex-col items-center py-1">
+                      <div className="w-px h-3 bg-slate-700" />
+                      <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-slate-600" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        {/* Detail panel */}
+        <div className="lg:col-span-1">
+          {activeNode ? (
+            <div className="sticky top-6">
+              <Card className={cn("border-2", activeNode.color.border)}>
+                <div className={cn("flex items-center justify-between px-4 py-3 rounded-t-xl border-b", activeNode.color.bg, activeNode.color.border.replace("border-","border-b-"))}>
+                  <div>
+                    <p className={cn("text-sm font-bold", activeNode.color.text)}>{activeNode.label}</p>
+                    <p className="text-[11px] text-slate-500">{activeNode.sublabel}</p>
+                  </div>
+                  <button
+                    onClick={() => setActiveNode(null)}
+                    className="text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <CardContent className="py-4 space-y-4">
+                  <span className={cn(
+                    "inline-flex text-[10px] uppercase font-bold px-2 py-0.5 rounded border",
+                    STATUS_STYLES[activeNode.status]
+                  )}>
+                    {STATUS_LABELS[activeNode.status]}
+                  </span>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {activeNode.description}
+                  </p>
+
+                  <div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2 font-semibold">
+                      Key details
+                    </p>
+                    <ul className="space-y-1.5">
+                      {activeNode.details.map((d) => (
+                        <li key={d} className="flex items-start gap-2 text-xs text-slate-300">
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-1", activeNode.color.dot)} />
+                          {d}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2 font-semibold">
+                      Technologies
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeNode.tech.map((t) => (
+                        <span
+                          key={t}
+                          className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-700 text-slate-300"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <Card className="h-full flex items-center justify-center min-h-[300px]">
+              <div className="text-center p-6">
+                <Cpu className="w-8 h-8 text-slate-700 mx-auto mb-3" />
+                <p className="text-sm text-slate-500">Click any block in the pipeline to view details</p>
+              </div>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Implementation notes */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          {
+            label: "Implemented",
+            desc:  "Frontend dashboard, network graph, traffic analyzer, CSV parsing, backend API scaffolding, ML service structure.",
+            color: "border-green-500/20 bg-green-500/5 text-green-400",
+          },
+          {
+            label: "Demo / Mock",
+            desc:  "GNN encoder, temporal model, forecasting, attack path, and explainability all use MockPredictor with heuristic outputs.",
+            color: "border-amber-500/20 bg-amber-500/5 text-amber-400",
+          },
+          {
+            label: "Planned research",
+            desc:  "Train TemporalGNNPredictor on real datasets (CICIDS, NF-ToN-IoT). Replace MockPredictor without changing APIs.",
+            color: "border-blue-500/20 bg-blue-500/5 text-blue-400",
+          },
+        ].map((item) => (
+          <div key={item.label} className={cn("p-4 rounded-xl border text-xs", item.color)}>
+            <p className="font-bold uppercase tracking-wide mb-1.5">{item.label}</p>
+            <p className="text-slate-400 leading-relaxed">{item.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
