@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Papa from "papaparse";
 import {
   Upload,
@@ -93,6 +93,30 @@ export default function TrafficAnalyzerPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("trafficAnalyzerState");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.status) setStatus(parsed.status);
+        if (parsed.dataset) setDataset(parsed.dataset);
+        if (parsed.windowSize) setWindowSize(parsed.windowSize);
+        if (parsed.analyzed) setAnalyzed(parsed.analyzed);
+      } catch (e) {
+        console.error("Failed to load saved state", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status !== "idle" && status !== "error" && status !== "parsing") {
+      const stateToSave = { status, dataset, windowSize, analyzed };
+      localStorage.setItem("trafficAnalyzerState", JSON.stringify(stateToSave));
+    } else if (status === "idle") {
+      localStorage.removeItem("trafficAnalyzerState");
+    }
+  }, [status, dataset, windowSize, analyzed]);
 
   const processFile = useCallback((file: File) => {
     if (!file.name.match(/\.(csv|CSV)$/)) {
