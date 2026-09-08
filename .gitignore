@@ -56,6 +56,13 @@ uploads/
 *.pcap
 *.pcapng
 
+# ─── Large dataset files (download separately) ────────────────────────────────
+datasets/*.csv
+datasets/data
+datasets/data2
+datasets/inspection_report.txt
+datasets/preprocessed/
+
 # ─── IDE / OS ─────────────────────────────────────────────────────────────────
 .vscode/
 .idea/

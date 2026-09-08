@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
-import { uploadDataset, analyzeDataset, getDataset, listDatasets } from "../controllers/uploadController";
+import { uploadDataset, analyzeDataset, getDataset, listDatasets, downloadReport } from "../controllers/uploadController";
 
 const storage = multer.memoryStorage();
 
@@ -31,5 +31,6 @@ router.post("/",         upload.single("file"), uploadDataset);
 router.post("/analyze",  analyzeDataset);
 router.get("/",          listDatasets);
 router.get("/:id",       getDataset);
+router.get("/:id/download", downloadReport);
 
 export default router;

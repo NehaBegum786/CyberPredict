@@ -80,6 +80,7 @@ export interface Dataset {
   timeStart?: string;
   timeEnd?: string;
   status: string;
+  filePath?: string;
 }
 
 export interface ApiError {
