@@ -72,7 +72,8 @@ export async function analyzeDataset(req: Request, res: Response): Promise<void>
     dataset.status = "processing";
 
     // Run Python attack detector (quick analyzer for large files)
-    const pythonScript = path.join(__dirname, "../..", "ml-service", "analyzer", "quick_analyzer.py");
+    const projectRoot = path.join(__dirname, "../../..");
+    const pythonScript = path.join(projectRoot, "ml-service", "analyzer", "quick_analyzer.py");
     const filePath = dataset.filePath;
 
     if (!filePath || !fs.existsSync(filePath)) {
