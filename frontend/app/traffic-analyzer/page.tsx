@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { DemoBadge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { storage } from "@/lib/storage";
 
 // ─── Column mapping ───────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ function autoDetectMapping(columns: string[]): Record<string, string> {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ParsedDataset {
+  id: string;
   filename: string;
   rows: number;
   columns: string[];
@@ -76,6 +78,7 @@ interface ParsedDataset {
   timeStart?: string;
   timeEnd?: string;
   fileSize: string;
+  fileId?: string; // IndexedDB file reference
 }
 
 type UploadStatus = "idle" | "parsing" | "mapping" | "ready" | "error";
@@ -92,9 +95,24 @@ export default function TrafficAnalyzerPage() {
   const [showMapping, setShowMapping] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initialize IndexedDB storage
   useEffect(() => {
+    storage.init().then(() => {
+      setStorageReady(true);
+      console.log("✅ IndexedDB storage initialized");
+    }).catch(err => {
+      console.error("Failed to initialize storage:", err);
+      setStorageReady(true); // Continue without IndexedDB
+    });
+  }, []);
+
+  // Load saved state from localStorage + IndexedDB
+  useEffect(() => {
+    if (!storageReady) return;
+
     const saved = localStorage.getItem("trafficAnalyzerState");
     if (saved) {
       try {
@@ -103,22 +121,26 @@ export default function TrafficAnalyzerPage() {
         if (parsed.dataset) setDataset(parsed.dataset);
         if (parsed.windowSize) setWindowSize(parsed.windowSize);
         if (parsed.analyzed) setAnalyzed(parsed.analyzed);
+        console.log("✅ Restored state from localStorage");
       } catch (e) {
         console.error("Failed to load saved state", e);
       }
     }
-  }, []);
+  }, [storageReady]);
 
+  // Save state to localStorage whenever it changes
   useEffect(() => {
+    if (!storageReady) return;
+
     if (status !== "idle" && status !== "error" && status !== "parsing") {
       const stateToSave = { status, dataset, windowSize, analyzed };
       localStorage.setItem("trafficAnalyzerState", JSON.stringify(stateToSave));
     } else if (status === "idle") {
       localStorage.removeItem("trafficAnalyzerState");
     }
-  }, [status, dataset, windowSize, analyzed]);
+  }, [status, dataset, windowSize, analyzed, storageReady]);
 
-  const processFile = useCallback((file: File) => {
+  const processFile = useCallback(async (file: File) => {
     if (!file.name.match(/\.(csv|CSV)$/)) {
       // Accept CSVs only for now; PCAP requires backend
       if (!file.name.match(/\.(pcap|pcapng)$/i)) {
@@ -139,11 +161,21 @@ export default function TrafficAnalyzerPage() {
       ? `${(sizeKB / 1024).toFixed(1)} MB`
       : `${sizeKB.toFixed(1)} KB`;
 
+    // Save file to IndexedDB first
+    let fileId: string | undefined;
+    try {
+      fileId = await storage.saveFile(file);
+      console.log("✅ File saved to IndexedDB:", fileId);
+    } catch (err) {
+      console.error("Failed to save file to IndexedDB:", err);
+      // Continue without IndexedDB
+    }
+
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       preview: 200, // read first 200 rows for demo
-      complete: (results) => {
+      complete: async (results) => {
         const columns = results.meta.fields ?? [];
         if (columns.length === 0) {
           setError("Could not detect columns. Ensure the CSV has a header row.");
@@ -175,7 +207,9 @@ export default function TrafficAnalyzerPage() {
 
         timestamps.sort();
 
-        setDataset({
+        const datasetId = `dataset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const newDataset: ParsedDataset = {
+          id: datasetId,
           filename: file.name,
           rows: data.length,
           columns,
@@ -186,7 +220,18 @@ export default function TrafficAnalyzerPage() {
           timeStart: timestamps[0],
           timeEnd: timestamps[timestamps.length - 1],
           fileSize,
-        });
+          fileId,
+        };
+
+        // Save dataset metadata to IndexedDB
+        try {
+          await storage.saveDataset(newDataset);
+          console.log("✅ Dataset metadata saved to IndexedDB");
+        } catch (err) {
+          console.error("Failed to save dataset to IndexedDB:", err);
+        }
+
+        setDataset(newDataset);
         setStatus("ready");
       },
       error: (err) => {
@@ -219,12 +264,20 @@ export default function TrafficAnalyzerPage() {
     setAnalyzed(true);
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setStatus("idle");
     setDataset(null);
     setError(null);
     setAnalyzed(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    
+    // Clear IndexedDB storage
+    try {
+      await storage.clearAll();
+      console.log("✅ IndexedDB storage cleared");
+    } catch (err) {
+      console.error("Failed to clear IndexedDB:", err);
+    }
   };
 
   return (
