@@ -125,6 +125,8 @@ export default function TrafficAnalyzerPage() {
         if (parsed.dataset) setDataset(parsed.dataset);
         if (parsed.windowSize) setWindowSize(parsed.windowSize);
         if (parsed.analyzed) setAnalyzed(parsed.analyzed);
+        if (parsed.analysisResults) setAnalysisResults(parsed.analysisResults);
+        if (parsed.backendDatasetId) setBackendDatasetId(parsed.backendDatasetId);
         console.log("✅ Restored state from localStorage");
       } catch (e) {
         console.error("Failed to load saved state", e);
@@ -137,12 +139,19 @@ export default function TrafficAnalyzerPage() {
     if (!storageReady) return;
 
     if (status !== "idle" && status !== "error" && status !== "parsing") {
-      const stateToSave = { status, dataset, windowSize, analyzed };
+      const stateToSave = { 
+        status, 
+        dataset, 
+        windowSize, 
+        analyzed, 
+        analysisResults, 
+        backendDatasetId 
+      };
       localStorage.setItem("trafficAnalyzerState", JSON.stringify(stateToSave));
     } else if (status === "idle") {
       localStorage.removeItem("trafficAnalyzerState");
     }
-  }, [status, dataset, windowSize, analyzed, storageReady]);
+  }, [status, dataset, windowSize, analyzed, analysisResults, backendDatasetId, storageReady]);
 
   const processFile = useCallback(async (file: File) => {
     if (!file.name.match(/\.(csv|CSV)$/)) {
