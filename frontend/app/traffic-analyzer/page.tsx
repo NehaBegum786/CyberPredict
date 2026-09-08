@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ArrowRight,
   Info,
+  Download,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -95,8 +96,11 @@ export default function TrafficAnalyzerPage() {
   const [showMapping, setShowMapping] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [backendDatasetId, setBackendDatasetId] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadedFileRef = useRef<File | null>(null);
 
   // Initialize IndexedDB storage
   useEffect(() => {
@@ -155,6 +159,9 @@ export default function TrafficAnalyzerPage() {
 
     setStatus("parsing");
     setError(null);
+    
+    // Store file reference for backend upload
+    uploadedFileRef.current = file;
 
     const sizeKB = file.size / 1024;
     const fileSize = sizeKB > 1024
@@ -257,11 +264,55 @@ export default function TrafficAnalyzerPage() {
   const handleDragLeave = () => setIsDragging(false);
 
   const handleAnalyze = async () => {
+    if (!uploadedFileRef.current || !dataset) {
+      setError("No file uploaded");
+      return;
+    }
+
     setAnalyzing(true);
-    // Simulate processing delay
-    await new Promise((r) => setTimeout(r, 2200));
-    setAnalyzing(false);
-    setAnalyzed(true);
+    setError(null);
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      
+      // Step 1: Upload file to backend
+      const formData = new FormData();
+      formData.append('file', uploadedFileRef.current);
+      
+      const uploadRes = await fetch(`${API_URL}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!uploadRes.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      const uploadData = await uploadRes.json();
+      const datasetId = uploadData.id;
+      setBackendDatasetId(datasetId);
+      
+      // Step 2: Analyze dataset
+      const analyzeRes = await fetch(`${API_URL}/api/upload/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId }),
+      });
+      
+      if (!analyzeRes.ok) {
+        throw new Error('Analysis failed');
+      }
+      
+      const analyzeData = await analyzeRes.json();
+      setAnalysisResults(analyzeData.analysis);
+      setAnalyzed(true);
+      
+    } catch (err: any) {
+      console.error('Analysis error:', err);
+      setError(err.message || 'Analysis failed. Make sure backend is running on http://localhost:4000');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleReset = async () => {
@@ -269,6 +320,9 @@ export default function TrafficAnalyzerPage() {
     setDataset(null);
     setError(null);
     setAnalyzed(false);
+    setAnalysisResults(null);
+    setBackendDatasetId(null);
+    uploadedFileRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = "";
     
     // Clear IndexedDB storage
@@ -277,6 +331,35 @@ export default function TrafficAnalyzerPage() {
       console.log("✅ IndexedDB storage cleared");
     } catch (err) {
       console.error("Failed to clear IndexedDB:", err);
+    }
+  };
+
+  const handleDownload = async (format: 'csv' | 'excel' | 'json') => {
+    if (!backendDatasetId) {
+      setError("No dataset ID available");
+      return;
+    }
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const response = await fetch(`${API_URL}/api/upload/${backendDatasetId}/download?format=${format}`);
+      
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dataset?.filename || 'attack_report'}_report.${format === 'excel' ? 'csv' : format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error('Download error:', err);
+      setError(err.message || 'Download failed');
     }
   };
 
@@ -616,36 +699,149 @@ export default function TrafficAnalyzerPage() {
                 size="lg"
                 loading={analyzing}
                 onClick={handleAnalyze}
-                disabled={!dataset.mapping.src_ip || !dataset.mapping.dst_ip}
+                disabled={analyzing}
                 icon={<Activity className="w-4 h-4" />}
               >
-                {analyzing ? "Building graph & running forecast…" : "Analyze Dataset & Generate Forecast"}
+                {analyzing ? "Analyzing dataset..." : "Analyze Dataset & Detect Attacks"}
               </Button>
             </div>
           ) : (
-            <div className="p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3">
-              <div className="flex items-center gap-3">
-                <CheckCircle2 className="w-5 h-5 text-blue-400" />
-                <div>
-                  <p className="text-sm font-semibold text-blue-300">Analysis complete</p>
-                  <p className="text-xs text-slate-400">
-                    Graph snapshots built · Demo forecast generated · Attack path estimated
-                  </p>
+            <>
+              {/* Analysis Results */}
+              {analysisResults && (
+                <>
+                  {/* Attack Statistics */}
+                  <Card className="bg-gradient-to-br from-blue-500/5 to-purple-500/5 border-blue-500/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-blue-400" />
+                        Attack Detection Results
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                          <p className="text-xs text-slate-500 uppercase mb-1">Total Records</p>
+                          <p className="text-2xl font-bold text-white">{analysisResults.total_records?.toLocaleString()}</p>
+                        </div>
+                        <div className="text-center p-4 bg-green-500/10 rounded-lg border border-green-500/20">
+                          <p className="text-xs text-green-400 uppercase mb-1">Benign Traffic</p>
+                          <p className="text-2xl font-bold text-green-300">{analysisResults.benign_count?.toLocaleString()}</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {(100 - (analysisResults.attack_percentage || 0)).toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "text-center p-4 rounded-lg border",
+                          analysisResults.attack_percentage < 5 ? "bg-green-500/10 border-green-500/20" :
+                          analysisResults.attack_percentage < 15 ? "bg-yellow-500/10 border-yellow-500/20" :
+                          analysisResults.attack_percentage < 30 ? "bg-orange-500/10 border-orange-500/20" :
+                          "bg-red-500/10 border-red-500/20"
+                        )}>
+                          <p className={cn(
+                            "text-xs uppercase mb-1",
+                            analysisResults.attack_percentage < 5 ? "text-green-400" :
+                            analysisResults.attack_percentage < 15 ? "text-yellow-400" :
+                            analysisResults.attack_percentage < 30 ? "text-orange-400" :
+                            "text-red-400"
+                          )}>Attacks Detected</p>
+                          <p className={cn(
+                            "text-2xl font-bold",
+                            analysisResults.attack_percentage < 5 ? "text-green-300" :
+                            analysisResults.attack_percentage < 15 ? "text-yellow-300" :
+                            analysisResults.attack_percentage < 30 ? "text-orange-300" :
+                            "text-red-300"
+                          )}>{analysisResults.attack_count?.toLocaleString()}</p>
+                          <p className="text-xs font-semibold mt-1">
+                            {analysisResults.attack_percentage?.toFixed(2)}%
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Attack Breakdown */}
+                      {analysisResults.attack_breakdown && Object.keys(analysisResults.attack_breakdown).length > 0 && (
+                        <div className="space-y-3 mt-4">
+                          <p className="text-sm font-semibold text-slate-300">Attack Type Breakdown:</p>
+                          {Object.entries(analysisResults.attack_breakdown).map(([type, data]: [string, any]) => (
+                            <div key={type} className="space-y-1.5">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-slate-200 font-medium">{type}</span>
+                                <span className="text-slate-400">
+                                  {data.count?.toLocaleString()} ({data.percentage?.toFixed(2)}%)
+                                </span>
+                              </div>
+                              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-red-500 to-orange-500 rounded-full"
+                                  style={{ width: `${Math.min(data.percentage || 0, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Download Buttons */}
+                      <div className="pt-4 border-t border-slate-700">
+                        <p className="text-sm font-semibold text-slate-300 mb-3">Download Report:</p>
+                        <div className="flex gap-3 flex-wrap">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Download className="w-4 h-4" />}
+                            onClick={() => handleDownload('csv')}
+                          >
+                            Download CSV
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Download className="w-4 h-4" />}
+                            onClick={() => handleDownload('excel')}
+                          >
+                            Download Excel
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Download className="w-4 h-4" />}
+                            onClick={() => handleDownload('json')}
+                          >
+                            Download JSON
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
+              {/* Next Steps */}
+              <div className="p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-blue-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-blue-300">Analysis complete</p>
+                    <p className="text-xs text-slate-400">
+                      {analysisResults ? `Detected ${analysisResults.attack_count} attacks in ${analysisResults.total_records?.toLocaleString()} records` : 'Results ready'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Link href="/network-graph">
+                    <Button variant="secondary" size="sm" icon={<ArrowRight className="w-4 h-4" />}>
+                      View Network Graph
+                    </Button>
+                  </Link>
+                  <Link href="/attack-forecast">
+                    <Button size="sm" icon={<ArrowRight className="w-4 h-4" />}>
+                      View Attack Forecast
+                    </Button>
+                  </Link>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <Link href="/network-graph">
-                  <Button variant="secondary" size="sm" icon={<ArrowRight className="w-4 h-4" />}>
-                    View Network Graph
-                  </Button>
-                </Link>
-                <Link href="/attack-forecast">
-                  <Button size="sm" icon={<ArrowRight className="w-4 h-4" />}>
-                    View Attack Forecast
-                  </Button>
-                </Link>
-              </div>
-            </div>
+            </>
           )}
         </>
       )}
